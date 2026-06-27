@@ -15,9 +15,9 @@ from pathlib import Path
 
 
 def _log_path() -> Path:
-    """Return the absolute path to the log file next to the executable."""
-    from src.paths import exe_dir, LOG_FILE
-    return exe_dir() / LOG_FILE
+    """Return the absolute path to the log file in the user data directory."""
+    from src.paths import log_path
+    return log_path()
 
 
 def setup_logging(level: int = logging.DEBUG) -> logging.Logger:

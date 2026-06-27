@@ -2,11 +2,13 @@
 config.py – Persistent application configuration.
 
 Stores:
-  - minecraft_dir      : Path to the .minecraft folder
-  - last_version       : Last successfully synced manifest version (optional)
-  - base_url           : Remote raw-file base URL (GitHub or any CDN)
-  - parallel_downloads : Number of simultaneous downloads (default 4)
-  - language           : UI locale code, e.g. "en" or "es" (default "en")
+  - minecraft_dir        : Path to the .minecraft folder
+  - last_version         : Last successfully synced manifest version (optional)
+  - base_url             : Remote raw-file base URL (GitHub or any CDN)
+  - parallel_downloads   : Number of simultaneous downloads (default 4)
+  - language             : UI locale code, e.g. "en" or "es" (default "en")
+  - sync_resourcepacks   : Whether to download (but never delete) resourcepacks (default False)
+  - sync_shaderpacks     : Whether to download (but never delete) shaderpacks (default False)
 
 The config file (mupdater_config.json) is always written next to the
 running executable.  Path resolution is handled by src.paths so it works
@@ -60,9 +62,9 @@ DEFAULT_LANGUAGE = "en"
 
 
 def _config_path() -> Path:
-    """Return the absolute path to the config file next to the executable."""
-    from src.paths import exe_dir, CONFIG_FILE
-    return exe_dir() / CONFIG_FILE
+    """Return the absolute path to the config file in the user data directory."""
+    from src.paths import config_path
+    return config_path()
 
 
 def _default_minecraft_dir() -> Path | None:
@@ -98,6 +100,8 @@ class AppConfig:
         self.base_url: str = DEFAULT_BASE_URL
         self.parallel_downloads: int = DEFAULT_PARALLEL_DOWNLOADS
         self.language: str = DEFAULT_LANGUAGE
+        self.sync_resourcepacks: bool = False
+        self.sync_shaderpacks: bool = False
         self._path: Path = _config_path()
 
     # ------------------------------------------------------------------
@@ -128,6 +132,8 @@ class AppConfig:
             data.get("parallel_downloads", DEFAULT_PARALLEL_DOWNLOADS)
         )
         self.language = data.get("language", DEFAULT_LANGUAGE)
+        self.sync_resourcepacks = bool(data.get("sync_resourcepacks", False))
+        self.sync_shaderpacks = bool(data.get("sync_shaderpacks", False))
         log.debug("Config loaded from %s", self._path)
         return self
 
@@ -139,6 +145,8 @@ class AppConfig:
             "base_url": self.base_url,
             "parallel_downloads": self.parallel_downloads,
             "language": self.language,
+            "sync_resourcepacks": self.sync_resourcepacks,
+            "sync_shaderpacks": self.sync_shaderpacks,
         }
         try:
             self._path.write_bytes(_dumps(data))

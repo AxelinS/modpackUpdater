@@ -1,0 +1,9 @@
+{
+  "minecraft_dir": "C:\\Users\\axelm\\AppData\\Roaming\\.minecraft",
+  "last_version": "1.4.0",
+  "base_url": "https://raw.githubusercontent.com/AxelinS/minecraftMods/main/modpack/pack",
+  "parallel_downloads": 4,
+  "language": "es",
+  "sync_resourcepacks": false,
+  "sync_shaderpacks": false
+}

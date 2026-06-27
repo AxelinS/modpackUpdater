@@ -140,12 +140,34 @@ class App(ctk.CTk):
         )
         self._title_label.grid(row=0, column=0, padx=20, pady=(16, 2), sticky="w")
 
+        # App version (static)
         ctk.CTkLabel(
             header,
             text=f"v{APP_VERSION}",
             font=ctk.CTkFont(size=12),
             text_color="gray",
-        ).grid(row=1, column=0, padx=20, pady=(0, 12), sticky="w")
+        ).grid(row=1, column=0, padx=20, pady=(0, 4), sticky="w")
+
+        # Modpack version (updates after each sync)
+        version_row = ctk.CTkFrame(header, fg_color="transparent")
+        version_row.grid(row=2, column=0, padx=20, pady=(0, 12), sticky="w")
+
+        self._modpack_version_key = ctk.CTkLabel(
+            version_row,
+            text=t("ui.modpack_version"),
+            font=ctk.CTkFont(size=12),
+            text_color="gray",
+        )
+        self._modpack_version_key.pack(side="left", padx=(0, 6))
+
+        initial_ver = self._config.last_version or t("ui.version_unknown")
+        self._modpack_version_val = ctk.CTkLabel(
+            version_row,
+            text=initial_ver,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#7eb8f7",
+        )
+        self._modpack_version_val.pack(side="left")
 
         # Appearance + language controls (top-right cluster)
         ctrl = ctk.CTkFrame(header, fg_color="transparent")
@@ -199,6 +221,28 @@ class App(ctk.CTk):
         self._url_entry = ctk.CTkEntry(cfg, textvariable=self._url_var)
         self._url_entry.grid(row=1, column=1, columnspan=2, padx=(4, 12), pady=4, sticky="ew")
         self._url_var.trace_add("write", self._on_url_changed)
+
+        # ── Optional pack checkboxes ────────────────────────────────────────
+        packs_row = ctk.CTkFrame(cfg, fg_color="transparent")
+        packs_row.grid(row=2, column=0, columnspan=3, padx=(8, 12), pady=(2, 6), sticky="w")
+
+        self._rp_var = tk.BooleanVar(value=self._config.sync_resourcepacks)
+        self._rp_check = ctk.CTkCheckBox(
+            packs_row,
+            text=t("ui.sync_resourcepacks"),
+            variable=self._rp_var,
+            command=self._on_rp_toggled,
+        )
+        self._rp_check.pack(side="left", padx=(4, 16))
+
+        self._sp_var = tk.BooleanVar(value=self._config.sync_shaderpacks)
+        self._sp_check = ctk.CTkCheckBox(
+            packs_row,
+            text=t("ui.sync_shaderpacks"),
+            variable=self._sp_var,
+            command=self._on_sp_toggled,
+        )
+        self._sp_check.pack(side="left")
 
         # ── Action buttons ─────────────────────────────────────────────────
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
@@ -312,9 +356,15 @@ class App(ctk.CTk):
         """Update every translatable widget label to the current locale."""
         self.title(t("app.title"))
         self._title_label.configure(text=t("app.title"))
+        self._modpack_version_key.configure(text=t("ui.modpack_version"))
+        # If no real version has been fetched yet, re-translate the placeholder
+        if not self._config.last_version:
+            self._modpack_version_val.configure(text=t("ui.version_unknown"))
         self._folder_key_label.configure(text=t("ui.minecraft_folder"))
         self._change_btn.configure(text=t("ui.change"))
         self._url_key_label.configure(text=t("ui.remote_url"))
+        self._rp_check.configure(text=t("ui.sync_resourcepacks"))
+        self._sp_check.configure(text=t("ui.sync_shaderpacks"))
         self._overall_label.configure(text=t("ui.overall_progress"))
         self._file_label.configure(text=t("ui.current_file"))
         self._cl_toggle_btn.configure(
@@ -342,6 +392,14 @@ class App(ctk.CTk):
     def _on_url_changed(self, *_: Any) -> None:
         # Only update the in-memory value; save happens on next update click
         self._config.base_url = self._url_var.get()
+
+    def _on_rp_toggled(self) -> None:
+        self._config.sync_resourcepacks = self._rp_var.get()
+        self._config.save()
+
+    def _on_sp_toggled(self) -> None:
+        self._config.sync_shaderpacks = self._sp_var.get()
+        self._config.save()
 
     def _on_update(self) -> None:
         # Double-start guard: check both the thread and our explicit flag
@@ -437,6 +495,10 @@ class App(ctk.CTk):
     def _on_sync_done(self, report: SyncReport) -> None:
         self._set_running_ui(False)
         self._set_overall(1, 1)
+
+        # Update the modpack version label whenever the manifest returned a version
+        if report.version:
+            self._modpack_version_val.configure(text=report.version)
 
         if report.cancelled:
             self._set_status(t("status.cancelled"))

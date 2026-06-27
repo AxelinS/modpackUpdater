@@ -5,12 +5,21 @@ Steps:
   1. Fetch the remote manifest.
   2. Walk the managed folders inside the minecraft directory.
   3. Diff local files against the manifest (hash comparison).
-  4. Delete orphan files (exist locally but absent from manifest).
+  4. Delete orphan files only for DELETION_DIRS (mods, config).
   5. Download missing / outdated files via the downloader.
   6. Return a SyncReport.
 
-Managed sub-directories (only these are ever touched):
-  mods, config, resourcepacks, shaderpacks, kubejs, defaultconfigs
+Directory behaviour:
+  DELETION_DIRS  – fully synced: files not in manifest are deleted.
+    mods, config
+
+  ADDONLY_DIRS   – download-only: new/updated files are downloaded but
+                   local files absent from manifest are never removed.
+    resourcepacks, shaderpacks, kubejs, defaultconfigs
+
+  resourcepacks and shaderpacks are opt-in via config.sync_resourcepacks /
+  config.sync_shaderpacks.  When disabled those directories are skipped
+  entirely.
 
 Concurrency / idempotency guarantees:
   - run_sync() is designed to be called from exactly one background thread
@@ -44,15 +53,19 @@ from src.manifest import FileEntry, Manifest, fetch_manifest
 
 log = get_logger("sync")
 
-# Directories the updater is allowed to touch.
-MANAGED_DIRS = frozenset({
-    "mods",
-    "config",
-    "resourcepacks",
-    "shaderpacks",
-    "kubejs",
-    "defaultconfigs",
-})
+# Directories that are FULLY synced: orphans are deleted.
+DELETION_DIRS: frozenset[str] = frozenset({"mods", "config"})
+
+# Directories that are ADD-ONLY: files are downloaded/updated but never deleted.
+# resourcepacks and shaderpacks are opt-in (controlled by config flags).
+# kubejs and defaultconfigs are always included here but never have deletions.
+ADDONLY_DIRS_ALWAYS: frozenset[str] = frozenset({"kubejs", "defaultconfigs"})
+ADDONLY_DIRS_OPT_IN: frozenset[str] = frozenset({"resourcepacks", "shaderpacks"})
+
+# Combined set of all directories that may ever be touched (for reference).
+ALL_MANAGED_DIRS: frozenset[str] = (
+    DELETION_DIRS | ADDONLY_DIRS_ALWAYS | ADDONLY_DIRS_OPT_IN
+)
 
 # Guard concurrent config writes that originate from parallel test code or
 # two rapid GUI clicks that somehow both pass the is_alive() check.
@@ -116,10 +129,13 @@ class SyncReport:
 # Diff helpers
 # ---------------------------------------------------------------------------
 
-def _collect_local_files(minecraft_dir: Path) -> dict[str, Path]:
-    """Return {relative_posix_path: absolute_path} for all managed files."""
+def _collect_local_files(
+    minecraft_dir: Path,
+    active_dirs: frozenset[str],
+) -> dict[str, Path]:
+    """Return {relative_posix_path: absolute_path} for all files in *active_dirs*."""
     local: dict[str, Path] = {}
-    for managed in MANAGED_DIRS:
+    for managed in active_dirs:
         folder = minecraft_dir / managed
         if not folder.is_dir():
             continue
@@ -133,10 +149,14 @@ def _collect_local_files(minecraft_dir: Path) -> dict[str, Path]:
 def _compute_diff(
     local_files: dict[str, Path],
     manifest_index: dict[str, FileEntry],
+    deletion_dirs: frozenset[str],
     on_status: StatusCallback | None,
     cancel_event: threading.Event,
 ) -> tuple[list[FileEntry], list[Path], int]:
     """Return (to_download, to_delete, up_to_date_count).
+
+    Orphan deletion is only performed for files that live inside
+    *deletion_dirs*.  Files in add-only directories are never deleted.
 
     Hashes every existing local file to decide whether it needs updating.
     Respects *cancel_event* between files so cancellation is responsive even
@@ -172,12 +192,17 @@ def _compute_diff(
                 log.debug("OUTDATED %s", rel_path)
                 to_download.append(entry)
 
-    # Files NOT in manifest (orphans) — only if not cancelled
+    # Orphans — only delete files that belong to a DELETION_DIR
     if not cancel_event.is_set():
         for rel_path, local_path in local_files.items():
             if rel_path not in manifest_index:
-                log.debug("ORPHAN   %s", rel_path)
-                to_delete.append(local_path)
+                # Determine which top-level directory this file lives in
+                top_dir = rel_path.split("/")[0]
+                if top_dir in deletion_dirs:
+                    log.debug("ORPHAN   %s", rel_path)
+                    to_delete.append(local_path)
+                else:
+                    log.debug("ORPHAN_SKIP (add-only dir) %s", rel_path)
 
     return to_download, to_delete, up_to_date
 
@@ -250,9 +275,17 @@ def run_sync(
     if on_status:
         on_status(t("status.scanning"))
 
-    local_files = _collect_local_files(minecraft_dir)
+    # Build the set of active directories for this run
+    addonly_dirs = set(ADDONLY_DIRS_ALWAYS)
+    if config.sync_resourcepacks:
+        addonly_dirs.add("resourcepacks")
+    if config.sync_shaderpacks:
+        addonly_dirs.add("shaderpacks")
+    active_dirs = DELETION_DIRS | frozenset(addonly_dirs)
+
+    local_files = _collect_local_files(minecraft_dir, active_dirs)
     to_download, to_delete, up_to_date = _compute_diff(
-        local_files, manifest_index, on_status, cancel_event
+        local_files, manifest_index, DELETION_DIRS, on_status, cancel_event
     )
     report.files_checked = len(manifest_index)
     report.files_up_to_date = up_to_date

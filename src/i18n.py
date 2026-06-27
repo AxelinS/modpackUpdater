@@ -60,6 +60,22 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Changelog",
         "es": "Registro de cambios",
     },
+    "ui.modpack_version": {
+        "en": "Modpack version:",
+        "es": "Versión del modpack:",
+    },
+    "ui.version_unknown": {
+        "en": "unknown",
+        "es": "desconocida",
+    },
+    "ui.sync_resourcepacks": {
+        "en": "Sync resourcepacks",
+        "es": "Sincronizar resourcepacks",
+    },
+    "ui.sync_shaderpacks": {
+        "en": "Sync shaderpacks",
+        "es": "Sincronizar shaderpacks",
+    },
     "ui.not_set": {
         "en": "Not set",
         "es": "No configurada",
