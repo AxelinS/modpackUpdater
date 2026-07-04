@@ -132,17 +132,33 @@ class SyncReport:
 def _collect_local_files(
     minecraft_dir: Path,
     active_dirs: frozenset[str],
+    deletion_dirs: frozenset[str],
 ) -> dict[str, Path]:
-    """Return {relative_posix_path: absolute_path} for all files in *active_dirs*."""
+    """Return {relative_posix_path: absolute_path} for all files in *active_dirs*.
+
+    For directories in *deletion_dirs* (e.g. ``mods``) only **top-level** files
+    are collected.  Subdirectories (mod configs, data folders, etc.) are
+    intentionally ignored so they are never treated as orphans and deleted.
+
+    For add-only directories the full recursive scan is kept because those dirs
+    are never subject to orphan deletion anyway.
+    """
     local: dict[str, Path] = {}
     for managed in active_dirs:
         folder = minecraft_dir / managed
         if not folder.is_dir():
             continue
-        for file_path in folder.rglob("*"):
-            if file_path.is_file():
-                rel = file_path.relative_to(minecraft_dir)
-                local[rel.as_posix()] = file_path
+        if managed in deletion_dirs:
+            # Only scan direct children — skip subdirectories entirely.
+            for file_path in folder.iterdir():
+                if file_path.is_file():
+                    rel = file_path.relative_to(minecraft_dir)
+                    local[rel.as_posix()] = file_path
+        else:
+            for file_path in folder.rglob("*"):
+                if file_path.is_file():
+                    rel = file_path.relative_to(minecraft_dir)
+                    local[rel.as_posix()] = file_path
     return local
 
 
@@ -283,7 +299,7 @@ def run_sync(
         addonly_dirs.add("shaderpacks")
     active_dirs = DELETION_DIRS | frozenset(addonly_dirs)
 
-    local_files = _collect_local_files(minecraft_dir, active_dirs)
+    local_files = _collect_local_files(minecraft_dir, active_dirs, DELETION_DIRS)
     to_download, to_delete, up_to_date = _compute_diff(
         local_files, manifest_index, DELETION_DIRS, on_status, cancel_event
     )
